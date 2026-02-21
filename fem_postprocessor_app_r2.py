@@ -727,7 +727,8 @@ def convert_mesh_format(meshio_mesh, output_path, file_format):
             triangle_cells = meshio.CellBlock('triangle', faces)
             export_mesh = meshio.Mesh(points=points, cells=[triangle_cells])
             
-            if file_format == 'ply' and hasattr(meshio_mesh, 'point_data') and meshio_mesh.point_
+            # FIXED: Complete the point_data check properly
+            if file_format == 'ply' and hasattr(meshio_mesh, 'point_data') and meshio_mesh.point_data:
                 scalar_point_data = {}
                 for key, val in meshio_mesh.point_data.items():
                     try:
@@ -766,11 +767,12 @@ def export_variable_csv(meshio_mesh, variable_name, output_path):
         point_data = getattr(meshio_mesh, 'point_data', None) or {}
         cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
         
-        if variable_name in point_
+        # FIXED: Complete the variable name checks
+        if variable_name in point_data:
             data = np.asarray(point_data[variable_name])
             location = 'point'
             coords = meshio_mesh.points
-        elif variable_name in cell_
+        elif variable_name in cell_data:
             cdata = cell_data[variable_name]
             if isinstance(cdata, list):
                 data = np.concatenate([np.asarray(a) for a in cdata if a is not None])
@@ -824,7 +826,8 @@ def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None):
     point_data = getattr(meshio_mesh, 'point_data', None) or {}
     cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
     
-    if variable_name in point_
+    # FIXED: Complete the variable name checks
+    if variable_name in point_data:
         point_values = point_data[variable_name]
         if point_values is None:
             return None
@@ -840,7 +843,7 @@ def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None):
         except (IndexError, TypeError, ValueError):
             return None
     
-    elif variable_name in cell_
+    elif variable_name in cell_data:
         cell_values = cell_data[variable_name]
         if cell_values is None:
             return None
