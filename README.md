@@ -2,5 +2,7 @@
 
 App
 
-[![battery](https://img.shields.io/badge/exodusvis1-streamlit-red)](https://fem-outputvisualization1.streamlit.app/)  (Comparison of Models for Applications and Limitations)
+[![visualization-app](https://img.shields.io/badge/exodusvis1-streamlit-red)](https://fem-outputvisualization1.streamlit.app/)  (Basic Visualization of Exodus Files obtained From FEM simulations)
+
+[![visualization-app](https://img.shields.io/badge/exodusvis2-streamlit-red)](https://fem-outputvisualization2.streamlit.app/)  (Advanced Visualization of Exodus Files obtained From FEM simulations)
 
