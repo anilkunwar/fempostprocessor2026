@@ -290,12 +290,10 @@ def load_exodus_data(file_path, time_step=None):
        
         return None
 
-def analyze_mesh(meshio_mesh):
+def analyze_mesh(meshio_mesh, var_groups=None):
     """
     Analyze mesh and return statistics dictionary.
-   
-    Returns:
-        dict: Mesh statistics and metadata
+    If var_groups is provided, compute ranges across all timesteps for base variables.
     """
     if meshio_mesh is None:
         return {}
@@ -331,27 +329,97 @@ def analyze_mesh(meshio_mesh):
     point_data = getattr(meshio_mesh, 'point_data', None) or {}
     cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
    
-    for var_name, var_data in point_data.items():
-        if var_name and isinstance(var_name, str):
+    # If var_groups is provided, use it to build stats per base variable across timesteps
+    if var_groups:
+        # point variables: base names from groups
+        stats['point_vars'] = sorted(var_groups['point'].keys())
+        stats['cell_vars'] = sorted(var_groups['cell'].keys())
+       
+        # Compute global min/max for each base variable across all timesteps
+        for base in stats['point_vars']:
+            suffixed_vars = [v for _, v in var_groups['point'][base]]
             try:
-                arr = np.asarray(var_data)
-                stats['point_vars'].append(var_name)
-                stats['field_info'][var_name] = {
-                    'location': 'point',
-                    'shape': arr.shape[1:] if arr.ndim > 1 else (),
-                    'dtype': str(arr.dtype),
-                    'range': (float(np.min(arr)), float(np.max(arr))) if arr.size > 0 else None
-                }
+                arrs = [np.asarray(point_data[sv]) for sv in suffixed_vars if sv in point_data]
+                if arrs:
+                    # For vector variables, compute magnitude for range
+                    if arrs[0].ndim > 1:
+                        mags = [np.linalg.norm(a, axis=1) for a in arrs]
+                        global_min = min(np.min(m) for m in mags)
+                        global_max = max(np.max(m) for m in mags)
+                    else:
+                        global_min = min(np.min(a) for a in arrs)
+                        global_max = max(np.max(a) for a in arrs)
+                    stats['field_info'][base] = {
+                        'location': 'point',
+                        'shape': arrs[0].shape[1:] if arrs[0].ndim > 1 else (),
+                        'dtype': str(arrs[0].dtype),
+                        'range': (float(global_min), float(global_max))
+                    }
             except Exception:
-                stats['point_vars'].append(var_name)
-   
-    for var_name, var_data in cell_data.items():
-        if var_name and isinstance(var_name, str):
+                stats['field_info'][base] = {}
+       
+        for base in stats['cell_vars']:
+            suffixed_vars = [v for _, v in var_groups['cell'][base]]
             try:
-                if isinstance(var_data, list):
-                    arrays = [np.asarray(a) for a in var_data if a is not None]
-                    if arrays:
-                        arr = arrays[0]
+                arrs = []
+                for sv in suffixed_vars:
+                    if sv in cell_data:
+                        val = cell_data[sv]
+                        if isinstance(val, list):
+                            # concatenate blocks
+                            block_arrs = [np.asarray(b) for b in val if b is not None]
+                            if block_arrs:
+                                arrs.append(np.concatenate(block_arrs))
+                        else:
+                            arrs.append(np.asarray(val))
+                if arrs:
+                    if arrs[0].ndim > 1:
+                        mags = [np.linalg.norm(a, axis=1) for a in arrs]
+                        global_min = min(np.min(m) for m in mags)
+                        global_max = max(np.max(m) for m in mags)
+                    else:
+                        global_min = min(np.min(a) for a in arrs)
+                        global_max = max(np.max(a) for a in arrs)
+                    stats['field_info'][base] = {
+                        'location': 'cell',
+                        'shape': arrs[0].shape[1:] if arrs[0].ndim > 1 else (),
+                        'dtype': str(arrs[0].dtype),
+                        'range': (float(global_min), float(global_max))
+                    }
+            except Exception:
+                stats['field_info'][base] = {}
+    else:
+        # Fallback for old behavior (static mesh)
+        for var_name, var_data in point_data.items():
+            if var_name and isinstance(var_name, str):
+                try:
+                    arr = np.asarray(var_data)
+                    stats['point_vars'].append(var_name)
+                    stats['field_info'][var_name] = {
+                        'location': 'point',
+                        'shape': arr.shape[1:] if arr.ndim > 1 else (),
+                        'dtype': str(arr.dtype),
+                        'range': (float(np.min(arr)), float(np.max(arr))) if arr.size > 0 else None
+                    }
+                except Exception:
+                    stats['point_vars'].append(var_name)
+       
+        for var_name, var_data in cell_data.items():
+            if var_name and isinstance(var_name, str):
+                try:
+                    if isinstance(var_data, list):
+                        arrays = [np.asarray(a) for a in var_data if a is not None]
+                        if arrays:
+                            arr = arrays[0]
+                            stats['cell_vars'].append(var_name)
+                            stats['field_info'][var_name] = {
+                                'location': 'cell',
+                                'shape': arr.shape[1:] if arr.ndim > 1 else (),
+                                'dtype': str(arr.dtype),
+                                'range': (float(np.min(arr)), float(np.max(arr))) if arr.size > 0 else None
+                            }
+                    else:
+                        arr = np.asarray(var_data)
                         stats['cell_vars'].append(var_name)
                         stats['field_info'][var_name] = {
                             'location': 'cell',
@@ -359,22 +427,13 @@ def analyze_mesh(meshio_mesh):
                             'dtype': str(arr.dtype),
                             'range': (float(np.min(arr)), float(np.max(arr))) if arr.size > 0 else None
                         }
-                else:
-                    arr = np.asarray(var_data)
+                except Exception:
                     stats['cell_vars'].append(var_name)
-                    stats['field_info'][var_name] = {
-                        'location': 'cell',
-                        'shape': arr.shape[1:] if arr.ndim > 1 else (),
-                        'dtype': str(arr.dtype),
-                        'range': (float(np.min(arr)), float(np.max(arr))) if arr.size > 0 else None
-                    }
-            except Exception:
-                stats['cell_vars'].append(var_name)
    
     return stats
 
 # -----------------------------------------------------------------------------
-# Helper Functions - Mesh Merging (NEW)
+# Helper Functions - Mesh Merging
 # -----------------------------------------------------------------------------
 def merge_meshes(meshes):
     """
@@ -445,6 +504,59 @@ def merge_meshes(meshes):
         point_data=point_data_merged,
         cell_data=cell_data_merged
     )
+
+# -----------------------------------------------------------------------------
+# Helper Functions - Variable Grouping (NEW)
+# -----------------------------------------------------------------------------
+def group_time_variables(mesh):
+    """
+    Identify base variable names and group suffixed variables (e.g., _time0, _time1).
+    Returns:
+        var_groups: dict with keys 'point' and 'cell', each mapping base name to list of (timestep, suffixed_var)
+        n_times: maximum number of timesteps found
+    """
+    point_data = getattr(mesh, 'point_data', {}) or {}
+    cell_data = getattr(mesh, 'cell_data', {}) or {}
+
+    var_groups = {'point': defaultdict(list), 'cell': defaultdict(list)}
+    time_pattern = re.compile(r'_time(\d+)$')  # matches suffix like _time0, _time1
+
+    # Helper to process a data dict
+    def process_data(data_dict, location):
+        for var in data_dict.keys():
+            match = time_pattern.search(var)
+            if match:
+                ts = int(match.group(1))
+                base = var[:match.start()]
+            else:
+                ts = 0
+                base = var
+            var_groups[location][base].append((ts, var))
+
+    process_data(point_data, 'point')
+    process_data(cell_data, 'cell')
+
+    # Sort each group by timestep and determine max n_times
+    n_times = 1
+    for loc in var_groups:
+        for base in var_groups[loc]:
+            var_groups[loc][base].sort(key=lambda x: x[0])
+            n_times = max(n_times, len(var_groups[loc][base]))
+
+    return var_groups, n_times
+
+def get_available_variables(mesh):
+    """
+    Return point_vars (base names), cell_vars (base names), all_vars (base names),
+    var_groups, and n_times.
+    """
+    if mesh is None:
+        return [], [], [], {'point': {}, 'cell': {}}, 1
+    var_groups, n_times = group_time_variables(mesh)
+    point_vars = sorted(var_groups['point'].keys())
+    cell_vars = sorted(var_groups['cell'].keys())
+    all_vars = point_vars + cell_vars
+    return point_vars, cell_vars, all_vars, var_groups, n_times
 
 # -----------------------------------------------------------------------------
 # Helper Functions - Surface Extraction for Plotly
@@ -829,9 +941,9 @@ def convert_mesh_format(meshio_mesh, output_path, file_format):
     except Exception as e:
         return False, f"{type(e).__name__}: {str(e)[:200]}", 0
 
-def export_variable_csv(meshio_mesh, variable_name, output_path):
-    """Export variable data to CSV with coordinates."""
-    if meshio_mesh is None or not variable_name:
+def export_variable_csv(meshio_mesh, variable_base, output_path, time_step=0, var_groups=None):
+    """Export variable data to CSV with coordinates for the specified timestep."""
+    if meshio_mesh is None or not variable_base:
         return False, "No data to export"
    
     try:
@@ -840,30 +952,52 @@ def export_variable_csv(meshio_mesh, variable_name, output_path):
         point_data = getattr(meshio_mesh, 'point_data', None) or {}
         cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
        
-        if variable_name in point_data:
-            data = np.asarray(point_data[variable_name])
-            location = 'point'
+        # Determine location and get suffixed variable name
+        location = None
+        suffixed_var = None
+        if var_groups:
+            if variable_base in var_groups['point']:
+                group = var_groups['point'][variable_base]
+                if time_step < len(group):
+                    suffixed_var = group[time_step][1]
+                location = 'point'
+            elif variable_base in var_groups['cell']:
+                group = var_groups['cell'][variable_base]
+                if time_step < len(group):
+                    suffixed_var = group[time_step][1]
+                location = 'cell'
+        else:
+            # Fallback: treat variable_base as exact name
+            if variable_base in point_data:
+                suffixed_var = variable_base
+                location = 'point'
+            elif variable_base in cell_data:
+                suffixed_var = variable_base
+                location = 'cell'
+       
+        if not suffixed_var:
+            return False, f"Variable '{variable_base}' not found for timestep {time_step}"
+       
+        if location == 'point':
+            data = np.asarray(point_data[suffixed_var])
             coords = meshio_mesh.points
-        elif variable_name in cell_data:
-            cdata = cell_data[variable_name]
+        else:  # cell
+            cdata = cell_data[suffixed_var]
             if isinstance(cdata, list):
                 data = np.concatenate([np.asarray(a) for a in cdata if a is not None])
             else:
                 data = np.asarray(cdata)
-            location = 'cell'
             coords = None
-        else:
-            return False, f"Variable '{variable_name}' not found in mesh"
        
         if data.ndim > 1:
             if data.shape[1] <= 3:
-                df = pd.DataFrame(data, columns=[f'{variable_name}_{i}' for i in range(data.shape[1])])
-                df[f'{variable_name}_mag'] = np.linalg.norm(data, axis=1)
+                df = pd.DataFrame(data, columns=[f'{variable_base}_{i}' for i in range(data.shape[1])])
+                df[f'{variable_base}_mag'] = np.linalg.norm(data, axis=1)
             else:
                 df = pd.DataFrame(data)
-                df.columns = [f'{variable_name}_{i}' for i in range(data.shape[1])]
+                df.columns = [f'{variable_base}_{i}' for i in range(data.shape[1])]
         else:
-            df = pd.DataFrame({variable_name: data})
+            df = pd.DataFrame({variable_base: data})
        
         if location == 'point' and coords is not None:
             coord_df = pd.DataFrame(coords[:, :3], columns=['x', 'y', 'z'])
@@ -883,35 +1017,45 @@ def export_variable_csv(meshio_mesh, variable_name, output_path):
         return False, f"{type(e).__name__}: {e}"
 
 # -----------------------------------------------------------------------------
-# Helper Functions - Data Processing (UPDATED with time_step)
+# Helper Functions - Data Processing (UPDATED with time_step and var_groups)
 # -----------------------------------------------------------------------------
-def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None, time_step=0):
+def get_variable_values(meshio_mesh, variable_base, faces, face_cell_map=None,
+                        time_step=0, var_groups=None):
     """
-    Extract scalar values for a variable, mapped to faces.
-    If the variable is time-dependent (2D array), selects the given time_step.
-   
-    Returns:
-        numpy array of face values or None
+    Extract scalar values for a base variable at a given timestep, mapped to faces.
+    Uses var_groups to resolve suffixed variable name.
     """
-    if variable_name is None or faces is None or len(faces) == 0:
+    if variable_base is None or faces is None or len(faces) == 0 or var_groups is None:
         return None
    
     point_data = getattr(meshio_mesh, 'point_data', None) or {}
     cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
    
-    if variable_name in point_data:
-        point_values = point_data[variable_name]
+    # Determine location and get suffixed variable name
+    location = None
+    suffixed_var = None
+    if variable_base in var_groups['point']:
+        group = var_groups['point'][variable_base]
+        if time_step < len(group):
+            suffixed_var = group[time_step][1]
+        location = 'point'
+    elif variable_base in var_groups['cell']:
+        group = var_groups['cell'][variable_base]
+        if time_step < len(group):
+            suffixed_var = group[time_step][1]
+        location = 'cell'
+   
+    if not suffixed_var:
+        return None
+   
+    if location == 'point':
+        point_values = point_data.get(suffixed_var)
         if point_values is None:
             return None
        
         point_values = np.asarray(point_values)
        
-        # If 2D (time x points), take the specified time step
-        if point_values.ndim == 2 and point_values.shape[0] == len(meshio_mesh.points):
-            point_values = point_values[:, time_step]
-        elif point_values.ndim == 2 and point_values.shape[1] == len(meshio_mesh.points):
-            point_values = point_values[time_step, :]
-        # If still >1D, take magnitude
+        # If vector, take magnitude
         if point_values.ndim > 1:
             point_values = np.linalg.norm(point_values, axis=1)
        
@@ -921,8 +1065,8 @@ def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None, t
         except (IndexError, TypeError, ValueError):
             return None
    
-    elif variable_name in cell_data:
-        cell_values = cell_data[variable_name]
+    elif location == 'cell':
+        cell_values = cell_data.get(suffixed_var)
         if cell_values is None:
             return None
        
@@ -930,24 +1074,12 @@ def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None, t
             arrays = []
             for a in cell_values:
                 a = np.asarray(a)
-                # Handle time dimension
-                if a.ndim == 2:
-                    if a.shape[0] == len(meshio_mesh.cells[0].data):
-                        a = a[:, time_step]
-                    elif a.shape[1] == len(meshio_mesh.cells[0].data):
-                        a = a[time_step, :]
                 arrays.append(a)
             if not arrays:
                 return None
             cell_values = np.concatenate(arrays)
         else:
             cell_values = np.asarray(cell_values)
-            # Handle time dimension
-            if cell_values.ndim == 2:
-                if cell_values.shape[0] == sum(len(cb.data) for cb in meshio_mesh.cells if cb):
-                    cell_values = cell_values[:, time_step]
-                elif cell_values.shape[1] == sum(len(cb.data) for cb in meshio_mesh.cells if cb):
-                    cell_values = cell_values[time_step, :]
        
         if cell_values.ndim > 1:
             cell_values = np.linalg.norm(cell_values, axis=1)
@@ -982,19 +1114,6 @@ def get_variable_values(meshio_mesh, variable_name, faces, face_cell_map=None, t
    
     return None
 
-def get_available_variables(meshio_mesh):
-    """Get list of available variables with metadata."""
-    if meshio_mesh is None:
-        return [], [], []
-   
-    point_data = getattr(meshio_mesh, 'point_data', None) or {}
-    cell_data = getattr(meshio_mesh, 'cell_data', None) or {}
-   
-    point_vars = sorted([v for v in point_data.keys() if v and isinstance(v, str)])
-    cell_vars = sorted([v for v in cell_data.keys() if v and isinstance(v, str)])
-   
-    return point_vars, cell_vars, point_vars + cell_vars
-
 # -----------------------------------------------------------------------------
 # Main Application
 # -----------------------------------------------------------------------------
@@ -1024,9 +1143,14 @@ def main():
         st.session_state.faces = None
     if 'face_cell_map' not in st.session_state:
         st.session_state.face_cell_map = None
+    if 'var_groups' not in st.session_state:
+        st.session_state.var_groups = None
+    if 'n_times' not in st.session_state:
+        st.session_state.n_times = 1
    
     if st.sidebar.button("Clear Cache", help="Clear loaded mesh data"):
-        for key in ['meshio_mesh', 'mesh_stats', 'points', 'faces', 'face_cell_map', 'selected_dir']:
+        for key in ['meshio_mesh', 'mesh_stats', 'points', 'faces', 'face_cell_map',
+                    'selected_dir', 'var_groups', 'n_times']:
             st.session_state[key] = None
         st.rerun()
    
@@ -1064,14 +1188,13 @@ def main():
         else:
             st.success(f"Found {len(exodus_files)} file(s)")
        
-        # Time slider (will be placed after mesh is loaded)
         st.header("Time")
    
     # Load and merge mesh if directory changed or not loaded
     if exodus_files and (st.session_state.selected_dir != selected_dir or st.session_state.meshio_mesh is None):
         st.session_state.selected_dir = selected_dir
         st.session_state.meshio_mesh = None
-        for key in ['mesh_stats', 'points', 'faces', 'face_cell_map']:
+        for key in ['mesh_stats', 'points', 'faces', 'face_cell_map', 'var_groups', 'n_times']:
             st.session_state[key] = None
        
         meshes = []
@@ -1085,7 +1208,13 @@ def main():
             merged_mesh = merge_meshes(meshes)
             if merged_mesh:
                 st.session_state.meshio_mesh = merged_mesh
-                st.session_state.mesh_stats = analyze_mesh(merged_mesh)
+                # Extract variable groups and n_times
+                point_vars, cell_vars, all_vars, var_groups, n_times = get_available_variables(merged_mesh)
+                st.session_state.var_groups = var_groups
+                st.session_state.n_times = n_times
+                # Analyze mesh with groups for stats across timesteps
+                st.session_state.mesh_stats = analyze_mesh(merged_mesh, var_groups=var_groups)
+                # Extract surface geometry (assuming static for now)
                 points, faces, face_cell_map = extract_mesh_surfaces(merged_mesh)
                 st.session_state.points = points
                 st.session_state.faces = faces
@@ -1093,32 +1222,13 @@ def main():
                 st.rerun()
    
     merged_mesh = st.session_state.meshio_mesh
+    var_groups = st.session_state.var_groups
+    n_times = st.session_state.n_times if st.session_state.n_times else 1
    
-    # Determine number of timesteps
-    n_times = 1
+    # Time values (if available)
     time_values = None
-    if merged_mesh:
-        point_vars, cell_vars, _ = get_available_variables(merged_mesh)
-        if point_vars:
-            sample = merged_mesh.point_data[point_vars[0]]
-            if sample.ndim == 2:
-                if sample.shape[0] == len(merged_mesh.points):
-                    n_times = sample.shape[1]
-                elif sample.shape[1] == len(merged_mesh.points):
-                    n_times = sample.shape[0]
-        elif cell_vars:
-            sample = merged_mesh.cell_data[cell_vars[0]]
-            if isinstance(sample, list) and sample:
-                sample = sample[0]  # first block
-                if sample.ndim == 2:
-                    if sample.shape[0] == len(merged_mesh.cells[0].data):
-                        n_times = sample.shape[1]
-                    elif sample.shape[1] == len(merged_mesh.cells[0].data):
-                        n_times = sample.shape[0]
-       
-        # Try to get actual time values from field_data
-        if merged_mesh.field_data and 'time_whole' in merged_mesh.field_data:
-            time_values = merged_mesh.field_data['time_whole']
+    if merged_mesh and merged_mesh.field_data and 'time_whole' in merged_mesh.field_data:
+        time_values = merged_mesh.field_data['time_whole']
    
     # Sidebar time slider (using the previously opened context)
     with st.sidebar:
@@ -1161,11 +1271,16 @@ def main():
         **Exports:** VTU, VTK, STL, PLY, XDMF, CSV
         """)
    
-    if merged_mesh:
-        stats = st.session_state.mesh_stats or analyze_mesh(merged_mesh)
+    if merged_mesh and var_groups is not None:
+        stats = st.session_state.mesh_stats or analyze_mesh(merged_mesh, var_groups=var_groups)
         points = st.session_state.points
         faces = st.session_state.faces
         face_cell_map = st.session_state.face_cell_map
+       
+        # Get base variable lists
+        point_bases = sorted(var_groups['point'].keys())
+        cell_bases = sorted(var_groups['cell'].keys())
+        all_bases = point_bases + cell_bases
        
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1191,39 +1306,53 @@ def main():
             </div>
             """, unsafe_allow_html=True)
         with col4:
-            all_vars = stats.get('point_vars', []) + stats.get('cell_vars', [])
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-value">{len(all_vars)}</div>
+                <div class="metric-value">{len(all_bases)}</div>
                 <div class="metric-label">Variables</div>
             </div>
             """, unsafe_allow_html=True)
        
-        point_vars, cell_vars, all_vars = get_available_variables(merged_mesh)
-       
         col_var1, col_var2 = st.columns([3, 1])
         with col_var1:
-            if not all_vars:
+            if not all_bases:
                 st.info("No variables found. Visualizing geometry only.")
-                variable_name = None
+                variable_base = None
             else:
-                variable_name = st.selectbox(
+                variable_base = st.selectbox(
                     "Select Variable",
-                    all_vars,
+                    all_bases,
                     key="var_select",
                     index=0,
                     help="Choose a field to visualize"
                 )
         with col_var2:
-            if variable_name and variable_name in stats.get('field_info', {}):
-                info = stats['field_info'][variable_name]
+            if variable_base and variable_base in stats.get('field_info', {}):
+                info = stats['field_info'][variable_base]
                 range_val = info.get('range')
                 if range_val:
                     st.metric("Range", f"{range_val[0]:.3g} to {range_val[1]:.3g}")
        
+        # Optionally handle time-varying coordinates (advanced)
+        # Check if coordinates are time-dependent
+        time_varying_coords = False
+        if 'coordx' in point_bases and len(var_groups['point']['coordx']) > 1:
+            time_varying_coords = True
+            # Extract points for current timestep
+            coordx_suff = var_groups['point']['coordx'][time_step][1]
+            coordy_suff = var_groups['point']['coordy'][time_step][1] if 'coordy' in point_bases else None
+            coordz_suff = var_groups['point']['coordz'][time_step][1] if 'coordz' in point_bases else None
+            points = np.column_stack([
+                merged_mesh.point_data[coordx_suff],
+                merged_mesh.point_data[coordy_suff] if coordy_suff else np.zeros(len(merged_mesh.points)),
+                merged_mesh.point_data[coordz_suff] if coordz_suff else np.zeros(len(merged_mesh.points))
+            ])
+            # Faces remain same (topology assumed static)
+       
         values = None
-        if variable_name and faces is not None and len(faces) > 0:
-            values = get_variable_values(merged_mesh, variable_name, faces, face_cell_map, time_step=time_step)
+        if variable_base and faces is not None and len(faces) > 0:
+            values = get_variable_values(merged_mesh, variable_base, faces, face_cell_map,
+                                         time_step=time_step, var_groups=var_groups)
        
         if points is not None and faces is not None and len(points) > 0 and len(faces) > 0:
             fig = create_plotly_mesh(
@@ -1231,7 +1360,7 @@ def main():
                 color_map=color_map,
                 opacity=opacity,
                 show_edges=show_edges,
-                title=variable_name or "Mesh Geometry",
+                title=f"{variable_base} (t={time_values[time_step] if time_values is not None and len(time_values) > time_step else time_step})",
                 show_scalar_bar=show_scalar_bar,
                 camera_preset=camera_preset
             )
@@ -1242,7 +1371,7 @@ def main():
            
             if values is not None and len(values) > 0:
                 with st.expander("Variable Distribution", expanded=False):
-                    hist_fig = create_variable_histogram(values, variable_name)
+                    hist_fig = create_variable_histogram(values, variable_base)
                     if hist_fig:
                         st.plotly_chart(hist_fig, use_container_width=True)
         else:
@@ -1259,23 +1388,24 @@ def main():
             st.write(f"**Files:** {len(exodus_files)}")
             st.write(f"**Points:** {stats.get('n_points', 0):,}")
             st.write(f"**Cells:** {stats.get('n_cells', 0):,}")
+            st.write(f"**Timesteps:** {n_times}")
            
             if stats.get('cell_types'):
                 st.write("**Cell Types:**")
                 for ctype, count in stats['cell_types'].items():
                     st.write(f" - `{ctype}`: {count:,}")
            
-            if stats.get('point_vars'):
+            if point_bases:
                 st.write("**Point Variables:**")
-                for var in stats['point_vars']:
-                    info = stats.get('field_info', {}).get(var, {})
-                    st.write(f" - `{var}` {info.get('shape', '')} {info.get('dtype', '')}")
+                for base in point_bases:
+                    info = stats.get('field_info', {}).get(base, {})
+                    st.write(f" - `{base}` {info.get('shape', '')} {info.get('dtype', '')}")
            
-            if stats.get('cell_vars'):
+            if cell_bases:
                 st.write("**Cell Variables:**")
-                for var in stats['cell_vars']:
-                    info = stats.get('field_info', {}).get(var, {})
-                    st.write(f" - `{var}` {info.get('shape', '')} {info.get('dtype', '')}")
+                for base in cell_bases:
+                    info = stats.get('field_info', {}).get(base, {})
+                    st.write(f" - `{base}` {info.get('shape', '')} {info.get('dtype', '')}")
        
         st.markdown("### Available Formats")
        
@@ -1338,12 +1468,13 @@ def main():
             - Use **CSV** (below) for data analysis in Excel/Python
             """)
        
-        if variable_name:
+        if variable_base:
             st.markdown("### Export Variable Data (CSV)")
-            csv_filename = f"{variable_name}_data.csv"
+            csv_filename = f"{variable_base}_t{time_step}_data.csv"
             csv_path = os.path.join(st.session_state.cache_dir, csv_filename)
            
-            csv_success, csv_msg = export_variable_csv(merged_mesh, variable_name, csv_path)
+            csv_success, csv_msg = export_variable_csv(merged_mesh, variable_base, csv_path,
+                                                        time_step=time_step, var_groups=var_groups)
            
             if csv_success and os.path.exists(csv_path):
                 with open(csv_path, 'rb') as f:
@@ -1377,7 +1508,10 @@ def main():
         """)
                
     else:
-        st.error("Failed to load mesh. Check file format and dependencies.")
+        if merged_mesh is None:
+            st.error("Failed to load mesh. Check file format and dependencies.")
+        else:
+            st.warning("No variable groups found. The mesh might be empty or have no data.")
        
     st.divider()
     st.markdown("""
