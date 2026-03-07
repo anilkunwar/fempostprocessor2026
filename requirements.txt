@@ -5,3 +5,4 @@ streamlit
 netCDF4
 plotly
 numpy
+h5py
