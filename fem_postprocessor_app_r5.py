@@ -379,8 +379,8 @@ def read_exodus_all_timesteps(file_path: str, time_step: Optional[int] = None) -
     
     try:
         with st.spinner(f"Reading {os.path.basename(file_path)}..."):
-            # Read mesh topology with meshio (static)
-            mesh = meshio.read(file_path)
+            # Read mesh topology with meshio (static) - explicit format for partitioned files
+            mesh = meshio.read(file_path, file_format="exodus")
             
             if mesh.points is None or len(mesh.points) == 0:
                 logger.warning("Mesh has no points")
@@ -789,7 +789,7 @@ def merge_meshio_meshes(meshes: List[meshio.Mesh]) -> Optional[meshio.Mesh]:
 # -----------------------------------------------------------------------------
 # Helper Functions - Surface & Volume Extraction
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600)
+# REMOVED @st.cache_data decorator because meshio.Mesh is unhashable
 def extract_mesh_surfaces(meshio_mesh: meshio.Mesh, cell_types_filter: Optional[List[str]] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[List[Tuple[int, int]]]]:
     """Extract surface triangles from mesh for Plotly visualization."""
     if meshio_mesh is None:
