@@ -2045,7 +2045,8 @@ def main():
                     )
                 if fig is None:
                     st.warning("Isosurface requires tetrahedral mesh and scalar data")
-                    fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=title)
+                    # FIX: Use explicit title instead of undefined variable
+                    fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=f"{variable_base or 'Geometry'} (fallback){time_label}")
             
             elif viz_mode == "Volume (PyVista)":
                 if try_import_pyvista():
@@ -2058,10 +2059,10 @@ def main():
                             st.image(img, caption=f"{variable_base} Volume{time_label}", use_container_width=True)
                         else:
                             st.warning("Volume rendering failed; falling back to surface")
-                            fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=title)
+                            fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=f"{variable_base or 'Geometry'}{time_label}")
                 else:
                     st.warning("Install PyVista for volume rendering: `pip install pyvista`")
-                    fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=title)
+                    fig = create_plotly_mesh(points, faces, values, color_map=color_map, title=f"{variable_base or 'Geometry'}{time_label}")
             
             if fig is not None:
                 st.divider()
