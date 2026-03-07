@@ -8,5 +8,5 @@ App
 
 [![visualization-app](https://img.shields.io/badge/exodusvis3-streamlit-red)](https://fem-outputvisualization3.streamlit.app/)  (Advanced Spatiotemporal Visualization of Exodus Files obtained From FEM simulations, only one timeframe is shown)
 
-[![visualization-app](https://img.shields.io/badge/exodusvis4-streamlit-red)](https://fem-outputvisualization4.streamlit.app/)  (Advanced Spatiotemporal Visualization of Exodus Files obtained From FEM simulations)
+[![visualization-app](https://img.shields.io/badge/exodusvis4-streamlit-red)](https://fem-outputvisualization4.streamlit.app/)  (Advanced Spatiotemporal Visualization of Exodus Files obtained From FEM simulations, all time frames are shown)
 
