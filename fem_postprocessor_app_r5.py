@@ -546,7 +546,7 @@ def load_exodus_data(file_path: str, time_step: Optional[int] = None) -> Optiona
 # -----------------------------------------------------------------------------
 # Helper Functions - Mesh Analysis with Time Support
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600)
+# REMOVED @st.cache_data decorator because mesh_data dict contains unhashable objects
 def analyze_mesh(mesh_data: Dict[str, Any], time_step: int = 0) -> Dict[str, Any]:
     """
     Analyze mesh and return statistics dictionary for specified time step.
@@ -1763,7 +1763,6 @@ def main():
                         logger.info(f"Metadata for {file_path}: {metadata['n_times']} timesteps")
                     
                     # Load data (lazy loading - only current timestep initially)
-                    # FIXED: Use 'time_step' parameter, NOT 'time_step_slice'
                     mesh_data = load_exodus_data(file_path, time_step=0)
                     if mesh_data:
                         meshes_data.append(mesh_data)
