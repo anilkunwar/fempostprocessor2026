@@ -17,7 +17,7 @@ from datetime import datetime
 import pandas as pd
 from collections import defaultdict
 import logging
-from typing import Optional, Dict, List, Tuple, Union
+from typing import Optional, Dict, List, Tuple, Union, Any
 warnings.filterwarnings('ignore')
 
 # -----------------------------------------------------------------------------
@@ -44,7 +44,7 @@ st.set_page_config(
     menu_items={
         'Get Help': 'https://mooseframework.inl.gov',
         'Report a bug': 'https://github.com/idaholab/moose/issues',
-        'About': "MOOSE Exodus Viewer Pro v4.0\nBuilt with Streamlit + Plotly + Meshio + NetCDF4 + PyVista"
+        'About': "MOOSE Exodus Viewer Pro v4.0\nBuilt with Streamlit + Plotly + Meshio + NetCDF4"
     }
 )
 
@@ -177,16 +177,28 @@ SUPPORTED_EXPORT_FORMATS = {
 # -----------------------------------------------------------------------------
 # Helper Functions - File Discovery
 # -----------------------------------------------------------------------------
-def find_exodus_files(search_dir, recursive=True):
-    """Recursively find all Exodus files in the given directory."""
+def find_exodus_files(search_dir: str, recursive: bool = True) -> List[str]:
+    """
+    Recursively find all Exodus files in the given directory.
+    
+    Args:
+        search_dir: Directory path to search
+        recursive: Whether to search subdirectories
+        
+    Returns:
+        list: Sorted list of file paths
+    """
     exodus_extensions = ['.e', '.exo', '.exodus', '.out', '.ex2', '.e-s001', '.e-s002']
     exodus_files = []
+    
     if not os.path.exists(search_dir):
         logger.warning(f"Directory not found: {search_dir}")
         return exodus_files
+    
     try:
         if recursive:
             for root, dirs, files in os.walk(search_dir):
+                # Skip hidden and cache directories
                 dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules', '.git']]
                 for file in files:
                     if file.startswith('.'):
@@ -209,11 +221,12 @@ def find_exodus_files(search_dir, recursive=True):
     except Exception as e:
         logger.error(f"Error scanning directory {search_dir}: {e}")
         st.warning(f"Error scanning directory: {e}")
+    
     exodus_files.sort(key=lambda x: (os.path.dirname(x), os.path.basename(x).lower()))
     logger.info(f"Found {len(exodus_files)} Exodus files in {search_dir}")
     return exodus_files
 
-def get_file_display_name(file_path, base_dir):
+def get_file_display_name(file_path: str, base_dir: str) -> str:
     """Creates a user-friendly display name showing relative path."""
     try:
         rel_path = os.path.relpath(file_path, base_dir)
@@ -225,7 +238,7 @@ def get_file_display_name(file_path, base_dir):
     except Exception:
         return os.path.basename(file_path)
 
-def get_file_size_mb(file_path):
+def get_file_size_mb(file_path: str) -> float:
     """Get file size in MB with error handling."""
     try:
         size_bytes = os.path.getsize(file_path)
@@ -233,7 +246,7 @@ def get_file_size_mb(file_path):
     except OSError:
         return 0
 
-def format_file_size(size_mb):
+def format_file_size(size_mb: float) -> str:
     """Format file size with appropriate units."""
     if size_mb < 1:
         return f"{size_mb * 1024:.1f} KB"
@@ -246,7 +259,7 @@ def format_file_size(size_mb):
 # Helper Functions - NetCDF4 Time-Step Reading (Core Enhancement)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner="Reading Exodus file metadata...")
-def read_exodus_metadata(file_path):
+def read_exodus_metadata(file_path: str) -> Optional[Dict[str, Any]]:
     """
     Read Exodus file metadata using netCDF4 to get time info and variable names.
     Returns dict with time_values, n_times, variable info.
@@ -335,10 +348,10 @@ def read_exodus_metadata(file_path):
         return None
 
 @st.cache_data(ttl=3600, show_spinner="Loading Exodus data...")
-def read_exodus_all_timesteps(file_path, time_step_slice=None):
+def read_exodus_all_timesteps(file_path: str, time_step: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Read Exodus file data using netCDF4 directly for all or selected time steps.
-    Supports lazy loading via time_step_slice parameter.
+    Supports lazy loading via time_step parameter.
     
     Returns:
         dict with keys:
@@ -399,12 +412,12 @@ def read_exodus_all_timesteps(file_path, time_step_slice=None):
                 vector_vars = {}
                 
                 # Determine which time steps to load (for lazy loading)
-                if time_step_slice is None:
+                if time_step is None:
                     time_indices = list(range(n_times))
-                elif isinstance(time_step_slice, int):
-                    time_indices = [time_step_slice]
-                elif isinstance(time_step_slice, (list, tuple)):
-                    time_indices = list(time_step_slice)
+                elif isinstance(time_step, int):
+                    time_indices = [time_step]
+                elif isinstance(time_step, (list, tuple)):
+                    time_indices = list(time_step)
                 else:
                     time_indices = list(range(n_times))
                 
@@ -523,15 +536,18 @@ def read_exodus_all_timesteps(file_path, time_step_slice=None):
             st.code(f"File: {file_path}\nError: {type(e).__name__}: {str(e)}", language="text")
         return None
 
-def load_exodus_data(file_path, time_step=None):
-    """Wrapper for backward compatibility."""
-    return read_exodus_all_timesteps(file_path, time_step_slice=time_step)
+def load_exodus_data(file_path: str, time_step: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """
+    Wrapper for backward compatibility.
+    FIXED: Parameter name is 'time_step', not 'time_step_slice'
+    """
+    return read_exodus_all_timesteps(file_path, time_step=time_step)
 
 # -----------------------------------------------------------------------------
 # Helper Functions - Mesh Analysis with Time Support
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
-def analyze_mesh(mesh_data, time_step=0):
+def analyze_mesh(mesh_data: Dict[str, Any], time_step: int = 0) -> Dict[str, Any]:
     """
     Analyze mesh and return statistics dictionary for specified time step.
     Handles deforming meshes and vector fields.
@@ -665,7 +681,7 @@ def analyze_mesh(mesh_data, time_step=0):
 # -----------------------------------------------------------------------------
 # Helper Functions - Mesh Merging
 # -----------------------------------------------------------------------------
-def merge_meshes(meshes_data_list):
+def merge_meshes(meshes_data_list: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Merge a list of mesh data dicts from parallel subdomains."""
     if not meshes_data_list:
         return None
@@ -743,7 +759,7 @@ def merge_meshes(meshes_data_list):
         'vector_vars': vector_vars
     }
 
-def merge_meshio_meshes(meshes):
+def merge_meshio_meshes(meshes: List[meshio.Mesh]) -> Optional[meshio.Mesh]:
     """Merge meshio Mesh objects (topology only)."""
     if not meshes:
         return None
@@ -774,7 +790,7 @@ def merge_meshio_meshes(meshes):
 # Helper Functions - Surface & Volume Extraction
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
-def extract_mesh_surfaces(meshio_mesh, cell_types_filter=None):
+def extract_mesh_surfaces(meshio_mesh: meshio.Mesh, cell_types_filter: Optional[List[str]] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[List[Tuple[int, int]]]]:
     """Extract surface triangles from mesh for Plotly visualization."""
     if meshio_mesh is None:
         return None, None, None
@@ -915,10 +931,11 @@ def extract_mesh_surfaces(meshio_mesh, cell_types_filter=None):
 # -----------------------------------------------------------------------------
 # Helper Functions - Plotly Visualization (Enhanced)
 # -----------------------------------------------------------------------------
-def create_plotly_mesh(points, faces, values=None, color_map='Viridis',
-                       opacity=0.9, show_edges=False, title="Mesh",
-                       show_scalar_bar=True, camera_preset='isometric',
-                       vector_data=None, show_vectors=False, vector_scale=1.0):
+def create_plotly_mesh(points: np.ndarray, faces: np.ndarray, values: Optional[np.ndarray] = None, 
+                       color_map: str = 'Viridis', opacity: float = 0.9, show_edges: bool = False, 
+                       title: str = "Mesh", show_scalar_bar: bool = True, 
+                       camera_preset: str = 'isometric', vector_data: Optional[np.ndarray] = None, 
+                       show_vectors: bool = False, vector_scale: float = 1.0) -> go.Figure:
     """
     Create a Plotly 3D mesh visualization with scalar and vector field support.
     """
@@ -1088,7 +1105,9 @@ def create_plotly_mesh(points, faces, values=None, color_map='Viridis',
     
     return fig
 
-def create_isosurface_plot(points, cells, scalar_values, isovalue, color_map='Viridis', title="Isosurface"):
+def create_isosurface_plot(points: np.ndarray, cells: List[meshio.CellBlock], 
+                          scalar_values: np.ndarray, isovalue: float, 
+                          color_map: str = 'Viridis', title: str = "Isosurface") -> Optional[go.Figure]:
     """Create an isosurface plot using Plotly's Isosurface trace."""
     try:
         if scalar_values is None or len(scalar_values) != len(points):
@@ -1136,7 +1155,7 @@ def create_isosurface_plot(points, cells, scalar_values, isovalue, color_map='Vi
         logger.error(f"Error creating isosurface: {e}")
         return None
 
-def create_variable_histogram(values, var_name, nbins=50):
+def create_variable_histogram(values: np.ndarray, var_name: str, nbins: int = 50) -> Optional[go.Figure]:
     """Create a histogram of variable values."""
     if values is None or len(values) == 0:
         return None
@@ -1167,7 +1186,7 @@ def create_variable_histogram(values, var_name, nbins=50):
         logger.warning(f"Error creating histogram: {e}")
         return None
 
-def create_time_series_plot(mesh_data, variable_base, time_step_current):
+def create_time_series_plot(mesh_data: Dict[str, Any], variable_base: str, time_step_current: int) -> Optional[go.Figure]:
     """Create a time series plot showing variable evolution over all time steps."""
     if mesh_data is None or variable_base is None:
         return None
@@ -1258,7 +1277,7 @@ def create_time_series_plot(mesh_data, variable_base, time_step_current):
 # -----------------------------------------------------------------------------
 # Helper Functions - Format Conversion for ParaView
 # -----------------------------------------------------------------------------
-def get_meshio_write_formats():
+def get_meshio_write_formats() -> set:
     """Dynamically get supported write formats from meshio."""
     try:
         import meshio
@@ -1272,7 +1291,8 @@ def get_meshio_write_formats():
         logger.warning(f"Error getting meshio formats: {e}")
         return {'vtu', 'vtk', 'stl', 'ply', 'xdmf', 'exodus'}
 
-def convert_mesh_format(mesh_data, output_path, file_format, time_step=0, export_all_times=False):
+def convert_mesh_format(mesh_data: Dict[str, Any], output_path: str, file_format: str, 
+                       time_step: int = 0, export_all_times: bool = False) -> Tuple[bool, str, float]:
     """
     Convert mesh to specified format using meshio.
     Supports single timestep or full time series export.
@@ -1427,7 +1447,7 @@ def convert_mesh_format(mesh_data, output_path, file_format, time_step=0, export
         logger.error(f"Export error: {type(e).__name__}: {e}")
         return False, f"{type(e).__name__}: {str(e)[:200]}", 0
 
-def export_variable_csv(mesh_data, variable_base, output_path, time_step=0):
+def export_variable_csv(mesh_data: Dict[str, Any], variable_base: str, output_path: str, time_step: int = 0) -> Tuple[bool, str]:
     """Export variable data to CSV with coordinates for the specified timestep."""
     if mesh_data is None or not variable_base:
         return False, "No data to export"
@@ -1489,8 +1509,9 @@ def export_variable_csv(mesh_data, variable_base, output_path, time_step=0):
 # -----------------------------------------------------------------------------
 # Helper Functions - Data Processing
 # -----------------------------------------------------------------------------
-def get_variable_values(mesh_data, variable_base, faces=None, face_cell_map=None,
-                        time_step=0, return_vector=False):
+def get_variable_values(mesh_data: Dict[str, Any], variable_base: str, faces: Optional[np.ndarray] = None, 
+                       face_cell_map: Optional[List[Tuple[int, int]]] = None, time_step: int = 0, 
+                       return_vector: bool = False) -> Optional[np.ndarray]:
     """
     Extract scalar or vector values for a variable at a given timestep.
     If faces provided and location is point, maps to faces.
@@ -1542,7 +1563,7 @@ def get_variable_values(mesh_data, variable_base, faces=None, face_cell_map=None
     
     return data
 
-def apply_deformation(mesh_data, time_step):
+def apply_deformation(mesh_data: Dict[str, Any], time_step: int) -> Optional[np.ndarray]:
     """
     Apply displacement to base points for deforming mesh visualization.
     Returns deformed points array or None if not deforming.
@@ -1596,7 +1617,7 @@ def try_import_pyvista():
         logger.info("PyVista not installed; volume rendering disabled")
         return None
 
-def create_pyvista_volume(mesh_data, variable_base, time_step, isovalue=None):
+def create_pyvista_volume(mesh_data: Dict[str, Any], variable_base: str, time_step: int, isovalue: Optional[float] = None):
     """Create a PyVista volume/isosurface plot (requires pyvista)."""
     pv = try_import_pyvista()
     if pv is None or mesh_data is None:
@@ -1742,7 +1763,8 @@ def main():
                         logger.info(f"Metadata for {file_path}: {metadata['n_times']} timesteps")
                     
                     # Load data (lazy loading - only current timestep initially)
-                    mesh_data = load_exodus_data(file_path, time_step_slice=0)
+                    # FIXED: Use 'time_step' parameter, NOT 'time_step_slice'
+                    mesh_data = load_exodus_data(file_path, time_step=0)
                     if mesh_data:
                         meshes_data.append(mesh_data)
             
